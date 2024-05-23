@@ -6,36 +6,8 @@ use base64::prelude::*;
 use clap::{Parser, Subcommand};
 use hyle_contract::{HyleInput, HyleOutput};
 
-#[derive(Parser)]
-#[command(author, version, about, long_about = None)]
-#[command(propagate_version = true)]
-struct Cli {
-    #[command(subcommand)]
-    command: Commands,
-
-    #[clap(long, short)]
-    reproducible: bool,
-}
-
-#[derive(Subcommand)]
-enum Commands {
-    Next { input: u32 },
-    Reset { input: u32 },
-}
-
 fn main() {
-    let cli = Cli::parse();
-
-    if cli.reproducible {
-        println!("Running with reproducible ELF binary.");
-    } else {
-        println!("Running non-reproducibly");
-    }
-
-    let receipt = match &cli.command {
-        Commands::Next { input } => prove(cli.reproducible, *input, 0),
-        Commands::Reset { input } => prove(cli.reproducible, 1, *input)
-    };
+    let receipt = prove();
 
     let claim = receipt.inner.get_claim().unwrap();
 
@@ -46,40 +18,35 @@ fn main() {
 
     let initial_state_b64 = BASE64_STANDARD.encode(&hyle_output.initial_state);
     let next_state_b64 = BASE64_STANDARD.encode(&hyle_output.next_state);
-    let initial_state_u32 = u32::from_be_bytes(hyle_output.initial_state.try_into().unwrap());
-    let next_state_u32 = u32::from_be_bytes(hyle_output.next_state.try_into().unwrap());
     let block_number = hyle_output.block_number;
     let block_time = hyle_output.block_time;
     let program_outputs = hyle_output.program_outputs;
 
     println!("{}", "-".repeat(20));
     println!("Method ID: {:?} (hex)", claim.pre.digest());
-    println!("proof.json written, transition from {} ({}) to {} ({})", initial_state_b64, initial_state_u32, next_state_b64, next_state_u32);
+    println!("proof.json written, transition from {} to {}", initial_state_b64, next_state_b64);
     println!("Aiming block {} at time {}.", block_number, block_time);
     println!("Program outputted {:?}", program_outputs);
 }
 
-fn prove(reproducible: bool, initial_state: u32, suggested_number: u32) -> risc0_zkvm::Receipt {
+fn prove() -> risc0_zkvm::Receipt {
     let env = ExecutorEnv::builder()
         .write(&HyleInput {
-            initial_state: initial_state.to_be_bytes().to_vec(),
+            initial_state: vec![0x93, 0x69, 0x97, 0x25, 0x7c, 0xba, 0xd5, 0x79, 0xbd, 0xb4, 0x59, 0x0b, 0x1b, 0xe8, 0xb4, 0xd9, 0x90, 0xad, 0x3f, 0x81, 0xa6, 0xee, 0x41, 0x62, 0xdc, 0xb3, 0x99, 0xa6, 0x92, 0x5f, 0x71, 0x07],
             sender: "".to_string(), //TODO
             caller: "".to_string(), //TODO
             block_number: 0, //TODO
             block_time: 0, //TODO
             tx_hash: vec![1], //TODO
-            program_inputs: suggested_number,
+            program_inputs: ("chat1", "password"),
         })
         .unwrap()
         .build()
         .unwrap();
 
     let prover = default_prover();
-    let binary = if reproducible {
+    let binary =
         std::fs::read("target/riscv-guest/riscv32im-risc0-zkvm-elf/docker/method/method")
-            .expect("Could not read ELF binary at target/riscv-guest/riscv32im-risc0-zkvm-elf/docker/method/method")
-    } else {
-        METHOD_ELF.to_vec()
-    };
+            .expect("Could not read ELF binary at target/riscv-guest/riscv32im-risc0-zkvm-elf/docker/method/method");
     prover.prove(env, &binary).unwrap()
 }

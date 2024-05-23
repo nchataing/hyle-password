@@ -1,15 +1,31 @@
 #![no_main]
 #![no_std]
 
-use risc0_zkvm::guest::env;
+extern crate alloc;
+
+use risc0_zkvm::{
+    guest::env,
+    sha::{Impl, Sha256}
+};
 use hyle_contract::{HyleInput, HyleOutput};
+
+use alloc::string::String;
 
 risc0_zkvm::guest::entry!(main);
 
 pub fn main() {
-    let input: HyleInput<u32> = env::read();
+    let input: HyleInput<(String, String)> = env::read();
 
-    let initial_state = u32::from_be_bytes(input.initial_state.clone().try_into().unwrap());
+    let (current_password, next_password) = input.program_inputs;
+
+    let digest = *Impl::hash_bytes(&current_password.as_bytes());
+
+    if input.initial_state != digest.as_bytes() {
+        panic!("Wrong password")
+    }
+
+    let next_state = *Impl::hash_bytes(&next_password.as_bytes());
+
     env::commit(&HyleOutput {
         version: 1,
         block_number: input.block_number,
@@ -17,24 +33,8 @@ pub fn main() {
         sender: input.sender,
         caller: input.caller,
         tx_hash: input.tx_hash,
-        program_outputs: "Any output heehee",
+        program_outputs: ":shrug:",
         initial_state: input.initial_state,
-        next_state: u32::to_be_bytes(
-            if initial_state == 1 {
-                match input.program_inputs {
-                    0 => panic!("Cannot reset to 0 as that would block the contract."),
-                    a => a
-                }
-            } else {
-                // Calculate the next number in the collatz conjecture
-                let mut n = initial_state;
-                if n % 2 == 0 {
-                    n = n / 2;
-                } else {
-                    n = 3 * n + 1;
-                }
-                n
-            }
-        ).to_vec()
+        next_state: next_state.as_bytes().to_vec()
     })
 }
